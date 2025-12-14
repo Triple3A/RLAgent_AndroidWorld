@@ -8,9 +8,7 @@ from android_world.agents import base_agent
 from android_world.env import interface, json_action
 
 
-# ===============================
-# Simple replay buffer
-# ===============================
+
 class ReplayBuffer:
     def __init__(self, capacity: int, obs_shape: Tuple[int, ...]):
         self.capacity = capacity
@@ -45,9 +43,7 @@ class ReplayBuffer:
         )
 
 
-# ===============================
-# Feature network φ_θ(s)
-# ===============================
+
 class ConvFeatureNet(nn.Module):
     """
     Simple CNN feature extractor for screen pixels.
@@ -83,12 +79,9 @@ class ConvFeatureNet(nn.Module):
             self._build_head(x)
         x = x.view(x.size(0), -1)
         feat = torch.relu(self.fc(x))
-        return feat  # [B, feature_dim]
+        return feat 
 
 
-# ===============================
-# BDQN core (Bayesian last layer)
-# ===============================
 class BDQNCore(nn.Module):
     """
     BDQN with:
@@ -114,7 +107,7 @@ class BDQNCore(nn.Module):
         self.num_actions = num_actions
         self.feature_dim = feature_dim
 
-        # Bayesian linear parameters: per-action mean & variance per feature
+        
         self.register_buffer("weight_mean", torch.zeros(num_actions, feature_dim))
         self.register_buffer("weight_var", torch.ones(num_actions, feature_dim) * prior_var)
 
@@ -134,13 +127,12 @@ class BDQNCore(nn.Module):
         Returns Q(s, a) for all actions: [B, num_actions]
         If use_sampled=True, sample weights from posterior (Thompson sampling).
         """
-        feat = self.phi(obs)  # [B, D]
+        feat = self.phi(obs)  
         if use_sampled:
             eps = torch.randn_like(self.weight_mean)
             w = self.weight_mean + torch.sqrt(torch.clamp(self.weight_var, min=1e-8)) * eps
         else:
             w = self.weight_mean
-        # [B, D] x [A, D]^T -> [B, A]
         q = torch.matmul(feat, w.t())
         return q
 
@@ -157,27 +149,25 @@ class BDQNCore(nn.Module):
         Diagonal Bayesian linear regression update for the last layer.
         This corresponds to lines 10–12 of Algorithm 3 in the BDQN paper.
         """
-        states = torch.from_numpy(batch["states"]).to(self.device)      # [B, C,H,W]
+        states = torch.from_numpy(batch["states"]).to(self.device) 
         next_states = torch.from_numpy(batch["next_states"]).to(self.device)
         actions = torch.from_numpy(batch["actions"]).long().to(self.device)
         rewards = torch.from_numpy(batch["rewards"]).to(self.device)
         dones = torch.from_numpy(batch["dones"]).to(self.device)
 
-        # Compute features
-        phi_s = self.phi(states)  # [B, D]
+        phi_s = self.phi(states) 
         with torch.no_grad():
-            q_next = self.q_values(next_states, use_sampled=False)  # [B, A]
-            max_q_next, _ = q_next.max(dim=1)  # [B]
+            q_next = self.q_values(next_states, use_sampled=False)
+            max_q_next, _ = q_next.max(dim=1) 
 
-        y = rewards + gamma * (1.0 - dones) * max_q_next  # target y_r in the pseudo-code
+        y = rewards + gamma * (1.0 - dones) * max_q_next
 
-        # For each action, do diagonal Bayesian linear regression
         for a in range(self.num_actions):
             mask = (actions == a)
             if mask.sum() == 0:
                 continue
-            phi_a = phi_s[mask]  # [N_a, D]
-            y_a = y[mask]        # [N_a]
+            phi_a = phi_s[mask] 
+            y_a = y[mask]       
 
             # Precision update: Λ_a = 1/prior_var + (phi^T phi)/noise_var
             phi_sq_sum = (phi_a ** 2).sum(dim=0)  # [D]
@@ -193,9 +183,6 @@ class BDQNCore(nn.Module):
             self.weight_var[a] = post_var
 
 
-# ===============================
-# Android action discretization
-# ===============================
 class AndroidDiscreteActionSpace:
     """
     Simple discretization of Android actions:
@@ -216,7 +203,6 @@ class AndroidDiscreteActionSpace:
 
     def index_to_action(self, idx: int) -> json_action.JSONAction:
         if idx < self.num_clicks:
-            # CLICK on grid cell
             row = idx // self.grid_cols
             col = idx % self.grid_cols
             x = int((col + 0.5) * self.screen_w / self.grid_cols)
@@ -242,9 +228,6 @@ class AndroidDiscreteActionSpace:
             return json_action.JSONAction(action_type=json_action.NAVIGATE_HOME)
 
 
-# ===============================
-# Android BDQN Agent
-# ===============================
 class BDQNAgent(base_agent.EnvironmentInteractingAgent):
     """
         - step(): acts in the environment, stores (x_t, a_t, r_t, x_{t+1})
@@ -311,11 +294,10 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
             obs_shape=(3, obs_height, obs_width),
         )
 
-        # Book-keeping
+
         self.total_steps = 0
         self._last_screen_signature: Optional[int] = None
 
-    # --------- Utilities ---------
     def _preprocess_obs(self, state: interface.State) -> np.ndarray:
         """
         Convert android_world State into a CHW float32 numpy array.
@@ -343,7 +325,6 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
         """
         elems = getattr(state, "ui_elements", None)
         if elems is None:
-            # Fall back to raw pixels
             return hash(state.pixels.tobytes())
         sig_parts = []
         for e in elems:
@@ -387,13 +368,11 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
         rewards = torch.from_numpy(batch["rewards"]).to(self.device)
         dones = torch.from_numpy(batch["dones"]).to(self.device)
 
-        # Current Q
-        q_all = self.bdqn(states)  # [B,A]
-        q = q_all.gather(1, actions.unsqueeze(1)).squeeze(1)  # [B]
+        q_all = self.bdqn(states)
+        q = q_all.gather(1, actions.unsqueeze(1)).squeeze(1)
 
-        # Target Q using target network (greedy over mean Q)
         with torch.no_grad():
-            next_q_all = self.target_bdqn(next_states)  # [B,A]
+            next_q_all = self.target_bdqn(next_states)
             max_next_q, _ = next_q_all.max(dim=1)
             target = rewards + self.gamma * (1.0 - dones) * max_next_q
 
@@ -403,10 +382,8 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
         loss.backward()
         self.optimizer.step()
 
-        # Update Bayesian posterior (diagonal) – Algorithm 3 line 5/6 + 11/12
         self.bdqn.update_posterior(batch, gamma=self.gamma)
 
-    # --------- Main interaction method ---------
     def step(self, goal: str) -> base_agent.AgentInteractionResult:
         """
         One interaction step with android_world.
@@ -438,7 +415,7 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
         next_state = self.get_post_transition_state()
         next_obs = self._preprocess_obs(next_state)
         reward = self._compute_reward(state, next_state)
-        done = False  # You can define a stopping condition if you want
+        done = False
 
         # Store in replay
         self.replay.add(obs, action_idx, reward, next_obs, done)
@@ -451,7 +428,6 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
         if self.total_steps % self.target_update_freq == 0:
             self.target_bdqn.load_state_dict(self.bdqn.state_dict())
 
-        # Data returned to the outer loop (similar to RandomAgent)
         step_data = {
             "raw_screenshot": state.pixels,
             "ui_elements": state.ui_elements,
@@ -460,6 +436,6 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
         }
 
         return base_agent.AgentInteractionResult(
-            done=False,   # you can flip this based on your own stopping rule
+            done=False,
             data=step_data,
         )

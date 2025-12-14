@@ -11,22 +11,22 @@ from android_world.env import interface, json_action
 
 @dataclasses.dataclass
 class PpoRndConfig:
-    rollout_len: int = 64          # K in RND paper
+    rollout_len: int = 64          
     gamma_ext: float = 0.99
     gamma_int: float = 0.99
     lam: float = 0.95
     ppo_clip: float = 0.2
     vf_coef: float = 0.5
     ent_coef: float = 0.001
-    rnd_coef: float = 1.0          # weight on RND loss
-    int_coeff: float = 1.0         # scale intrinsic advantage
-    ext_coeff: float = 1.0         # scale extrinsic advantage
+    rnd_coef: float = 1.0         
+    int_coeff: float = 1.0        
+    ext_coeff: float = 1.0        
     lr: float = 3e-4
     n_epochs: int = 4
     batch_size: int = 64
     max_episode_steps: int = 200
-    n_actions: int = 13            # must match action mapping below
-    obs_height: int = 160          # you can change depending on env
+    n_actions: int = 13          
+    obs_height: int = 160          
     obs_width: int = 90
     obs_channels: int = 3          # RGB
 
@@ -52,7 +52,7 @@ class PolicyValueNet(Model):
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
-        x = self.gap(x)          # -> [B, channels], no dependence on H/W
+        x = self.gap(x)          
         x = self.fc(x)
         logits = self.logits_layer(x)
         v_ext = tf.squeeze(self.v_ext_layer(x), axis=-1)
@@ -74,9 +74,9 @@ class RndNet(Model):
         x = tf.cast(obs, tf.float32) / 255.0
         x = self.conv1(x)
         x = self.conv2(x)
-        x = self.gap(x)          # -> [B, channels]
+        x = self.gap(x)        
         x = self.fc(x)
-        return x                 # [B, 128]
+        return x                
     
 
 class RNDAgent(base_agent.EnvironmentInteractingAgent):
@@ -130,9 +130,6 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
         _ = self.rnd_target(dummy)
         _ = self.rnd_predictor(dummy)
 
-    # ---------------------------------------------------------
-    # Helpers
-    # ---------------------------------------------------------
 
     def _preprocess_obs(self, state: interface.State) -> np.ndarray:
         """Convert android_world State to (H, W, C) uint8 image with fixed size."""
@@ -141,10 +138,10 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
         # Ensure we have 3 channels
         if img.ndim == 2:  # grayscale
             img = np.stack([img] * 3, axis=-1)
-        elif img.shape[-1] == 4:  # RGBA -> RGB
+        elif img.shape[-1] == 4:  
             img = img[..., :3]
 
-        # Resize to (obs_height, obs_width)
+        
         img_tf = tf.image.resize(
             tf.convert_to_tensor(img),
             (self.cfg.obs_height, self.cfg.obs_width),
@@ -205,10 +202,7 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
             action_type=json_action.SCROLL, direction="down"
         )
 
-    # ---------------------------------------------------------
-    # PPO / RND logic
-    # ---------------------------------------------------------
-
+ 
     def _policy_step(self, obs_np: np.ndarray):
         """
         Run policy on a single observation.
@@ -249,7 +243,6 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
         if self._buf_idx < K:
             return
 
-        # ----- 1. compute GAE returns and advantages (numpy) -----
         v_ext = np.append(self.buf_v_ext, last_v_ext)
         v_int = np.append(self.buf_v_int, last_v_int)
         rext = self.buf_rew_ext.copy()
@@ -275,7 +268,6 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
         adv = cfg.ext_coeff * adv_ext + cfg.int_coeff * adv_int
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
-        # ----- 2. PPO + RND optimization (tf.GradientTape) -----
         n_samples = K
         idxs = np.arange(n_samples)
 
@@ -328,8 +320,6 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
                     ent = -tf.reduce_mean(tf.reduce_sum(probs * log_probs, axis=-1))
 
                     # RND loss (fit predictor to target on next states)
-                    # Here we reuse mb_obs as inputs to RND;
-                    # if you prefer RND on next_obs, store them separately.
                     t_feat = self.rnd_target(mb_obs, training=False)
                     p_feat = self.rnd_predictor(mb_obs, training=True)
                     rnd_loss = tf.reduce_mean(tf.reduce_sum(
@@ -353,9 +343,7 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
         # reset buffer
         self._buf_idx = 0
 
-    # ---------------------------------------------------------
-    # EnvironmentInteractingAgent overrides
-    # ---------------------------------------------------------
+
 
     def reset(self, go_home: bool = False) -> None:
         super().reset(go_home=go_home)
@@ -398,12 +386,11 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
         self.buf_logp[idx] = logp_a
         self.buf_rew_ext[idx] = r_ext
         self.buf_rew_int[idx] = r_int
-        self.buf_done[idx] = 0.0   # only horizon-based termination here
+        self.buf_done[idx] = 0.0   
         self.buf_v_ext[idx] = v_ext
         self.buf_v_int[idx] = v_int
         self._buf_idx += 1
 
-        # maybe update PPO+RND
         self._update_if_ready(last_v_ext=v_ext, last_v_int=v_int)
 
         # episode termination rule (simple horizon)
