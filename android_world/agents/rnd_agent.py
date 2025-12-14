@@ -79,13 +79,13 @@ class RndNet(Model):
         return x                 # [B, 128]
     
 
-class RndAgent(base_agent.EnvironmentInteractingAgent):
+class RNDAgent(base_agent.EnvironmentInteractingAgent):
 
     def __init__(
         self,
         env: interface.AsyncEnv,
         cfg: Optional[PpoRndConfig] = None,
-        name: str = "RndAgent",
+        name: str = "RNDAgent",
         transition_pause: float | None = 1.0,
         verbose: bool = True,
     ):
