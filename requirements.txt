@@ -18,3 +18,7 @@ pytest
 requests
 tenacity
 termcolor
+torch 
+torchvision
+keras<3
+tensorflow<2.15
