@@ -36,7 +36,7 @@ from android_world.agents import m3a
 from android_world.agents import random_agent
 from android_world.agents import seeact
 from android_world.agents import t3a
-from android_world.agents import rnd_agent
+from android_world.agents import rnd_agent, bdqn_agent
 from android_world.env import env_launcher
 from android_world.env import interface
 
@@ -182,6 +182,8 @@ def _get_agent(
   # RND Agent
   elif _AGENT_NAME.value == 'rnd_agent':
     agent = rnd_agent.RNDAgent(env)
+  elif _AGENT_NAME.value == 'bdqn_agent':
+    agent = bdqn_agent.BDQNAgent(env)
 
   if not agent:
     raise ValueError(f'Unknown agent: {_AGENT_NAME.value}')
