@@ -247,10 +247,12 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
         gamma: float = 0.99,
         lr: float = 1e-3,
         warmup_steps: int = 1000,
+        max_steps: int = 100000,
         train_freq: int = 4,
         target_update_freq: int = 1000,
         prior_var: float = 1.0,
         noise_var: float = 1.0,
+        verbose: bool = True,
     ):
         super().__init__(env=env, name=name, transition_pause=1.0)
 
@@ -260,8 +262,12 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
         self.batch_size = batch_size
         self.gamma = gamma
         self.warmup_steps = warmup_steps
+        self._max_steps = max_steps
         self.train_freq = train_freq
         self.target_update_freq = target_update_freq
+        self._verbose = verbose
+
+        self.visited_activities = set()
 
         # Discrete action space crafted from screen size
         self.action_space = AndroidDiscreteActionSpace(env.device_screen_size)
@@ -323,15 +329,19 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
         Cheap hash of the current screen based on UI elements.
         Reward will be 1 when this signature changes.
         """
-        elems = getattr(state, "ui_elements", None)
-        if elems is None:
-            return hash(state.pixels.tobytes())
-        sig_parts = []
-        for e in elems:
-            text = getattr(e, "text", "")
-            bounds = getattr(e, "bounds", None)
-            sig_parts.append((text, tuple(bounds) if bounds is not None else None))
-        return hash(tuple(sig_parts))
+        # elems = getattr(state, "ui_elements", None)
+        # if elems is None:
+        #     return hash(state.pixels.tobytes())
+        # sig_parts = []
+        # for e in elems:
+        #     text = getattr(e, "text", "")
+        #     bounds = getattr(e, "bounds", None)
+        #     sig_parts.append((text, tuple(bounds) if bounds is not None else None))
+        # return hash(tuple(sig_parts))
+        try:
+            return repr(state.ui_elements)
+        except Exception:
+            return str(type(state))
 
     def _compute_reward(self, prev_state: Optional[interface.State], new_state: interface.State) -> float:
         """
@@ -342,7 +352,7 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
         if prev_state is None or self._last_screen_signature is None:
             self._last_screen_signature = new_sig
             return 0.0
-        reward = 1.0 if new_sig != self._last_screen_signature else 0.0
+        reward = 1.0 if new_sig not in self.visited_activities else 0.0
         self._last_screen_signature = new_sig
         return reward
 
@@ -384,6 +394,16 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
 
         self.bdqn.update_posterior(batch, gamma=self.gamma)
 
+
+    def reset(self, go_home: bool = False) -> None:
+        super().reset(go_home=go_home)
+        self.total_steps = 0
+        state = self.get_post_transition_state()
+        self._last_screen_signature = self._screen_signature(state)
+        self.visited_activities.clear()
+        self.visited_activities.add(self._last_screen_signature)
+
+
     def step(self, goal: str) -> base_agent.AgentInteractionResult:
         """
         One interaction step with android_world.
@@ -415,7 +435,12 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
         next_state = self.get_post_transition_state()
         next_obs = self._preprocess_obs(next_state)
         reward = self._compute_reward(state, next_state)
-        done = False
+        
+        activity = self._screen_signature(next_state)
+        if activity != None:
+            self.visited_activities.add(activity)
+
+        done = self.total_steps >= self._max_steps
 
         # Store in replay
         self.replay.add(obs, action_idx, reward, next_obs, done)
@@ -428,6 +453,15 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
         if self.total_steps % self.target_update_freq == 0:
             self.target_bdqn.load_state_dict(self.bdqn.state_dict())
 
+
+        if self._verbose:
+            print(
+                f"[{self.name}] step={self.total_steps} "
+                f"reward={reward:.3f} "
+                f"VisitedActivities={len(self.visited_activities)}"
+            )
+
+
         step_data = {
             "raw_screenshot": state.pixels,
             "ui_elements": state.ui_elements,
@@ -435,7 +469,10 @@ class BDQNAgent(base_agent.EnvironmentInteractingAgent):
             "action_index": action_idx,
         }
 
+        # if done:
+        #     self.reset(go_home=True)
+
         return base_agent.AgentInteractionResult(
-            done=False,
+            done=done,
             data=step_data,
         )

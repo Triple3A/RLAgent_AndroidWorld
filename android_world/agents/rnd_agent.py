@@ -94,6 +94,8 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
         self.cfg = cfg
         self._verbose = verbose
 
+        self.visited_activities = set()
+
         # models
         self.policy_value = PolicyValueNet(cfg)
         self.rnd_target = RndNet()
@@ -163,7 +165,7 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
         # simple: reward=1 when screen layout changes (new activity/screen)
         if prev_sig is None:
             return 0.0
-        return 1.0 if new_sig != prev_sig else 0.0
+        return 1.0 if new_sig not in self.visited_activities else 0.0
 
     def _index_to_action(self, idx: int) -> json_action.JSONAction:
         """
@@ -351,6 +353,8 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
         self._buf_idx = 0
         state = self.get_post_transition_state()
         self._last_screen_sig = self._screen_sig(state)
+        self.visited_activities.clear()
+        self.visited_activities.add(self._last_screen_sig)
 
     def step(self, goal: str) -> base_agent.AgentInteractionResult:
         """
@@ -361,6 +365,7 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
         # current state
         state = self.get_post_transition_state()
         obs = self._preprocess_obs(state)
+        
 
         # policy
         a_idx, v_ext, v_int, logp_a = self._policy_step(obs)
@@ -375,6 +380,10 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
         new_sig = self._screen_sig(next_state)
         r_ext = self._extrinsic_reward(self._last_screen_sig, new_sig)
         self._last_screen_sig = new_sig
+
+        activity = new_sig
+        if activity != None:
+            self.visited_activities.add(activity)
 
         # intrinsic reward from RND on next state
         r_int = self._compute_intrinsic_reward(next_obs)
@@ -396,13 +405,14 @@ class RNDAgent(base_agent.EnvironmentInteractingAgent):
         # episode termination rule (simple horizon)
         self._step_in_ep += 1
         done = self._step_in_ep >= cfg.max_episode_steps
-        if done:
-            self.reset(go_home=True)
+        # if done:
+        #     self.reset(go_home=True)
 
         if self._verbose:
             print(
                 f"[{self.name}] step={self._step_in_ep} "
-                f"a={a_idx} R_ext={r_ext:.3f} R_int={r_int:.3f}"
+                f"a={a_idx} R_ext={r_ext:.3f} R_int={r_int:.3f} "
+                f"VisitedActivities={len(self.visited_activities)}"
             )
 
         data: Dict[str, Any] = {
