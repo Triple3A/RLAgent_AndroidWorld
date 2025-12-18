@@ -40,6 +40,7 @@ from android_world.task_evals.single import sms
 from android_world.task_evals.single import system
 from android_world.task_evals.single import vlc
 from android_world.task_evals.single.calendar import calendar
+from android_world.task_evals.free_explore_google_photos import FreeExploreGooglePhotos
 
 
 def get_information_retrieval_task_path() -> None:
@@ -140,6 +141,7 @@ class TaskRegistry:
       expense.ExpenseDeleteSingle,
       files.FilesDeleteFile,
       files.FilesMoveFile,
+      FreeExploreGooglePhotos,
       markor.MarkorAddNoteHeader,
       markor.MarkorChangeNoteContent,
       markor.MarkorCreateFolder,

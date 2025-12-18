@@ -219,6 +219,11 @@ def _main() -> None:
   )
   suite.suite_family = _SUITE_FAMILY.value
 
+  # Make adb path & console port visible to tasks
+  os.environ["ANDROID_WORLD_ADB_PATH"] = _ADB_PATH.value
+  os.environ["ANDROID_WORLD_CONSOLE_PORT"] = str(_DEVICE_CONSOLE_PORT.value)
+
+
   agent = _get_agent(env, _SUITE_FAMILY.value)
 
   if _SUITE_FAMILY.value.startswith('miniwob'):
